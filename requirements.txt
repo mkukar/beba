@@ -2,3 +2,5 @@ langchain
 openai
 python-dotenv
 noaa-sdk
+spotipy
+pynput

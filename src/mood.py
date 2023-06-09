@@ -1,8 +1,9 @@
 # Copyright Michael Kukar 2023
 
-import logging, os
+from mood_changer import WeatherMoodChanger
+
+import logging
 from langchain.prompts import PromptTemplate
-from langchain.llms import OpenAI
 from langchain.chains import LLMChain
 from noaa_sdk import NOAA
 
@@ -28,17 +29,16 @@ class Mood:
         )
         self.mood_chain = LLMChain(llm=self.llm, prompt=self.mood_prompt_template)
         self.weather_noaa = NOAA()
+        self.mood_changers = [
+            WeatherMoodChanger()
+        ]
 
     # get relevant info that affects our LLMs mood
     def get_mood_changers(self):
-        mood_changers = {
-            'weather' : self.get_weather_summary(),
-            #'top news' : 'flooding in Ukraine'
-        }
-        return mood_changers
-
-    def get_weather_summary(self):
-        return next(iter(self.weather_noaa.get_forecasts(os.getenv('WEATHER_ZIP_CODE'), os.getenv('WEATHER_COUNTRY_CODE'))), {'shortForecast' : ''})['shortForecast'] # type: ignore
+        mood_changer_state = {}
+        for mood_changer in self.mood_changers:
+            mood_changer_state[mood_changer.get_mood_changer_topic()] = mood_changer.get_mood_changer_summary()
+        return mood_changer_state
 
     def format_mood_changers_into_text(self, mood_changers):
         mood_changer_text = ''
