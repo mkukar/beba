@@ -76,7 +76,5 @@ class Controller:
 
     def determine_mood_and_play(self):
         if self.mood is not None and self.music is not None:
-            newMood = self.mood.determine_mood()
-            print("New mood is {0}".format(newMood))
             self.music.start_playlist_based_on_mood(self.mood.determine_mood())
             print("MOOD: {0} | PLAYLIST: {1}".format(self.mood.currentMood, self.music.playlist['name'] if self.music.playlist is not None else "None"))
