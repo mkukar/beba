@@ -1,11 +1,13 @@
 # Copyright Michael Kukar 2023
 
-from mood_changer import WeatherMoodChanger
+from mood_changer import *
 
 import logging
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from noaa_sdk import NOAA
+import os
+import importlib
 
 logger = logging.getLogger('beba')
 
@@ -14,12 +16,14 @@ class Mood:
     MOOD_PROMPT = """
     Pretend you are a human that can experience moods. Given the following information, return a unique and specific mood
     that is less than three words followed by a colon. After the colon give a descriptive reasoning for the mood you are now in.
+    Your response must only include exactly one colon.
     {mood_changer_text}
     """
     MOOD_PROMPT_VARS = ['mood_changer_text']
     MOOD_SPLIT_CHARACTER = ':'
 
-    currentMood = 'happy'
+    current_mood = 'happy'
+    current_mood_reason = ''
 
     def __init__(self, llm):
         self.llm = llm
@@ -29,9 +33,19 @@ class Mood:
         )
         self.mood_chain = LLMChain(llm=self.llm, prompt=self.mood_prompt_template)
         self.weather_noaa = NOAA()
-        self.mood_changers = [
-            WeatherMoodChanger()
-        ]
+        self.mood_changers = self.get_enabled_mood_changers()
+
+    def get_enabled_mood_changers(self):
+        mood_changers = []
+        mood_topics_enabled = [x.capitalize().strip() for x in os.getenv('MOOD_TOPICS_ENABLED').strip().split(',')] if os.getenv('MOOD_TOPICS_ENABLED') else []
+        module =  importlib.import_module("mood_changer")
+        for mood_topic in mood_topics_enabled:
+            try:
+                moodChangerClass = getattr(module, "{0}MoodChanger".format(mood_topic))
+                mood_changers.append(moodChangerClass())
+            except Exception as e:
+                logger.warning("Could not find mood changer with name {0}, will not enable.".format(mood_topic))
+        return mood_changers
 
     # get relevant info that affects our LLMs mood
     def get_mood_changers(self):
@@ -43,9 +57,7 @@ class Mood:
     def format_mood_changers_into_text(self, mood_changers):
         mood_changer_text = ''
         for topic, summary in mood_changers.items():
-            mood_changer_text += 'the {0} is {1}, '.format(topic, summary)
-        mood_changer_text = mood_changer_text.capitalize()
-        mood_changer_text = mood_changer_text[:-2] + '.'
+            mood_changer_text += "{0}\n".format(summary)
         return mood_changer_text
 
     def determine_mood(self):
@@ -55,6 +67,9 @@ class Mood:
         logger.debug("Mood changer text: {0}".format(mood_changer_text))
         mood_response = self.mood_chain.run({'mood_changer_text' : mood_changer_text})
         logger.debug("LLM response: {0}".format(mood_response))
-        self.currentMood = mood_response.split(self.MOOD_SPLIT_CHARACTER)[0].strip()
-        logger.info("New mood: {0}".format(self.currentMood))
-        return self.currentMood
+        if len(mood_response.split(':')) > 2: # handling extra colons
+            split_response = mood_response.split(':')
+            mood_response = split_response[0] + '-'.join(split_response[1:])
+        self.current_mood, self.current_mood_reason = [x.strip() for x in mood_response.split(self.MOOD_SPLIT_CHARACTER)]
+        logger.info("New mood: {0}".format(self.current_mood))
+        return self.current_mood
