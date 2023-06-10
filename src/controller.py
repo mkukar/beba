@@ -1,14 +1,16 @@
 # Copyright Michael Kukar 2023
 
-from mood import Mood
-from music import Music
-
 from dotenv import load_dotenv
 import logging
 import os
 from langchain.llms import OpenAI
 from pynput import keyboard
 from threading import Thread, Timer, Lock
+
+from mood import Mood
+from music import Music
+if os.name != 'nt': # don't import if windows
+    from epaper_display import EPaperDisplay
 
 logger = logging.getLogger('beba')
 
@@ -25,7 +27,11 @@ class Controller:
     mood = None
     music = None
 
+    screen_enabled = False
+    screen = None
+
     mood_lock = Lock()
+    display_lock = Lock()
 
     def setup(self):
         load_dotenv()
@@ -41,6 +47,9 @@ class Controller:
         self.mood = Mood(self.llm)
         self.music = Music(self.llm)
         self.startup_message()
+        if os.getenv('RASPBERRY_PI_SCREEN') is not None and os.getenv('RASPBERRY_PI_SCREEN').lower() == "true":
+            self.screen = EPaperDisplay()
+            self.screen_enabled = True
         logger.info("Running...")
 
     def load_key_configuration(self):
@@ -107,17 +116,28 @@ class Controller:
     def determine_mood_and_play(self):
         logger.debug("Aquiring mood lock...")
         with self.mood_lock:
-            logger.debug("Lock aquired.")
+            logger.debug("Mood lock aquired.")
             if self.mood is not None and self.music is not None:
                 self.music.start_playlist_based_on_mood(self.mood.determine_mood())
                 print("MOOD: {0} | PLAYLIST: {1}".format(self.mood.current_mood, self.music.playlist['name'] if self.music.playlist is not None else "None"))
-            logger.debug("Releasing lock...")
+                if self.screen_enabled and self.screen is not None:
+                    self.refresh_rpi_display()
+            logger.debug("Releasing mood lock...")
 
     def get_reasoning_info(self):
         if self.mood is not None and self.music is not None:
             print("Mood Reasoning: {0}".format(self.mood.current_mood_reason))
             print("Playlist Reasoning: {0}".format(self.music.search_query_reason))
     
+    def refresh_rpi_display(self):
+        if self.screen_enabled and self.screen is not None and self.mood is not None and self.music is not None:
+            logger.debug("Aquiring display lock...")
+            with self.display_lock:
+                logger.debug("Display lock aquired.")
+                self.screen.render_main(self.mood.current_mood, self.music.playlist['name'] if self.music.playlist is not None else "N/A")
+            logger.debug("Releasing display lock.")
+
+
     def start_mood_timer(self):
         # default to every hour if environment not set
         durationMinutes = int(os.getenv('NEW_MOOD_TIMER_MINUTES')) if os.getenv('NEW_MOOD_TIMER_MINUTES') is not None else 60.0

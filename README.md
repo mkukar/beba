@@ -23,7 +23,28 @@
 `python src/main.py`
 
 - Use keyboard to control (play/pause, start new mood, etc.)
-- NEW_MOOD_TIMER_MINUTES will automatically generate a new mood and kick off the playlist it found every X minutes (defaults to every hour)
+- env variable `NEW_MOOD_TIMER_MINUTES` will automatically generate a new mood and kick off the playlist it found every X minutes (defaults to every hour)
+
+## (Optional) Raspberry Pi Setup
+
+### Requirements
+- Raspberry Pi (tested on 4B 4GB)
+- Waveshare 2.9 inch ePaper Display 296x128 pixels
+    - If you do not want to use this display, do not set RASPBERRY_PI_DISP env variable
+- Keyboard (5 keys required)
+
+### Setup
+- Clone repo onto Raspberry Pi
+- Set up .env file
+    - If using ePaper display, set `RASPBERRY_PI_DISP=true`
+- Run `raspberry_pi/setup.sh` and follow instructions after it completes
+- Test that everything is working by manually running `raspberry_pi/startup.sh`, then restart Raspberry Pi (startup.sh should run on reboot)
+
+### What `setup.sh` Does
+- Installs necessary dependencies
+- Runs `pip install -r requirements.txt`
+- Installs `raspotify`
+- Walks through instructions to configure `raspotify` + have `setup.sh` run on startup
 
 ## Troubleshooting
 
@@ -37,4 +58,7 @@ https://en.wikipedia.org/wiki/B%C3%A9la_Bart%C3%B3k
  Michael Kukar
 
 ## License
+
+Icons provided by https://icons8.com
+
 See LICENSE.md file
