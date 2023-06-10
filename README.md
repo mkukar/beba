@@ -6,6 +6,9 @@
 - OpenAI API key
 - Python 3+
 
+### Optional
+- NYTimes API Key (used to get news, movies, books to determine mood)
+
 ## Setup
 
 1. Install dependencies
@@ -18,6 +21,9 @@
 ## Run
 
 `python src/main.py`
+
+- Use keyboard to control (play/pause, start new mood, etc.)
+- NEW_MOOD_TIMER_MINUTES will automatically generate a new mood and kick off the playlist it found every X minutes (defaults to every hour)
 
 ## Troubleshooting
 

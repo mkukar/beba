@@ -15,7 +15,7 @@ class Music:
     This search can include specific genres, decades, and or artists or can be more generic depending on what you believe
     the mood should evoke. For example, your search could be "Upbeat Pop" or it could be "60s pop rock inspired by the beatles"
     Make your search as specific, unique and verbose as possible while being under ten words followed by a colon. 
-    After the colon give your descriptive reasoning for deciding this search.
+    After the colon give your descriptive reasoning for deciding this search. Your response must only include exactly one colon.
     """
     SEARCH_BY_MOOD_VARS = ['mood']
 
@@ -23,6 +23,8 @@ class Music:
 
     device = None
     playlist = None
+    search_query = ''
+    search_query_reason = ''
 
     def __init__(self, llm):
         self.spotify = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=self.USER_SCOPE))
@@ -60,8 +62,11 @@ class Music:
         logger.debug("Getting search query based on mood {0}".format(mood))
         llm_response = self.search_by_mood_chain.run({'mood' : mood})
         logger.debug("LLM response: {0}".format(llm_response))
-        search_query = llm_response.split(':')[0].strip()
-        return search_query
+        if len(llm_response.split(':')) > 2: # handling extra colons
+            split_response = llm_response.split(':')
+            llm_response = split_response[0] + '-'.join(split_response[1:])
+        self.search_query, self.search_query_reason = [x.strip() for x in llm_response.split(':')]
+        return self.search_query
     
     def start_playlist_based_on_mood(self, mood):
         search_query = self.get_search_query_from_mood(mood)
@@ -81,3 +86,15 @@ class Music:
             else:
                 logger.info("Resuming playback...")
                 self.spotify.start_playback(device_id=self.device['id'])
+
+    def next_track(self):
+        if self.device is not None:
+            if self.spotify.currently_playing() is not None:
+                logger.info("Skipping to next track...")
+                self.spotify.next_track()
+
+    def previous_track(self):
+        if self.device is not None:
+            if self.spotify.currently_playing() is not None:
+                logger.info("Skipping to previous track...")
+                self.spotify.previous_track()
