@@ -32,8 +32,9 @@ class EPaperDisplay:
     NEXT_IMG_PATH = IMG_DIR / "icons8-next-square-24.png"
     PLAY_PAUSE_IMG_PATH = IMG_DIR / "icons8-play-pause-square-24.png"
     NEW_MOOD_IMG_PATH = IMG_DIR / "icons8-reload-turn-arrow-function-to-spin-and-restart-24.png"
-    ADD_SONG_IMG_PATH = IMG_DIR / "icons8-add-song-24.png"
+    INFO_IMG_PATH = IMG_DIR / "icons8-info-24.png"
 
+    FONT_10 = ImageFont.truetype(str(FONT_PATH), 10)
     FONT_12 = ImageFont.truetype(str(FONT_PATH), 12)
     FONT_18 = ImageFont.truetype(str(FONT_PATH), 18)
     FONT_14 = ImageFont.truetype(str(FONT_PATH), 14)
@@ -55,6 +56,8 @@ class EPaperDisplay:
     current_mood_icon_reason  = 'none'
     current_mood_text = ""
 
+    is_info_screen = False
+
     def __init__(self, llm):
         self.llm = llm
         self.mood_prompt_template = PromptTemplate(
@@ -67,7 +70,7 @@ class EPaperDisplay:
         self.NEXT_IMG = self.load_image(str(self.NEXT_IMG_PATH))
         self.PLAY_PAUSE_IMG = self.load_image(str(self.PLAY_PAUSE_IMG_PATH))
         self.NEW_MOOD_IMG = self.load_image(str(self.NEW_MOOD_IMG_PATH))
-        self.ADD_SONG_IMG = self.load_image(str(self.ADD_SONG_IMG_PATH))
+        self.INFO_IMG = self.load_image(str(self.INFO_IMG_PATH))
         self.load_installed_mood_images()
         logger.info("Setting up display...")
         self.epd = epd2in9_V2.EPD()
@@ -81,6 +84,12 @@ class EPaperDisplay:
         new_image.paste(raw_image, (0,0), raw_image)
         new_image.convert("RGB")
         return new_image
+
+    def render(self, mood_text, playlist_text, song_name_text, artist_name_text, mood_info_text, playlist_info_text):
+        if not self.is_info_screen:
+            self.render_main(mood_text, playlist_text, song_name_text, artist_name_text)
+        else:
+            self.render_info(mood_text, playlist_text, mood_info_text, playlist_info_text)
 
     def render_main(self, mood_text, playlist_text, song_name_text="SONG", artist_name_text="ARTIST"):
         Himage = Image.new('1', (self.epd.height, self.epd.width), 255)
@@ -104,13 +113,37 @@ class EPaperDisplay:
         self.current_mood_text = mood_text
         self.epd.display(self.epd.getbuffer(Himage))
 
+    def split_strings(self, string_input, max_length):
+        return [string_input[i:i+max_length] for i in range(0, len(string_input), max_length)]
+
+    def render_info(self, mood_text, playlist_text, mood_info_text, playlist_info_text):
+        Himage = Image.new('1', (self.epd.height, self.epd.width), 255)
+        draw = ImageDraw.Draw(Himage)
+        info_strings = []
+        string_size = 40
+        info_strings.extend(self.split_strings(mood_info_text, string_size))
+        info_strings.extend(self.split_strings("{0} {1}".format(playlist_text, playlist_info_text), string_size))
+        draw.text((240, 0), 'BeBa v1.0', font = self.FONT_12, fill = 0)
+        startY = 10
+        yIncrement = 10
+        for info_str in info_strings:
+            draw.text((110, startY), '{0}'.format(info_str), font = self.FONT_10, fill = 0)
+            startY += yIncrement
+        self.render_button_info(draw, Himage)
+        if self.current_mood_text != mood_text:
+            self.render_mood(Himage, self.determine_mood_image(mood_text))
+        else:
+            self.render_mood(Himage, self.current_mood_icon.lower())
+        self.current_mood_text = mood_text
+        self.epd.display(self.epd.getbuffer(Himage))
+
     def render_button_info(self, draw, Himage):
         draw.line((10, self.epd.width-35, self.epd.height-10, self.epd.width-35), fill = 0)
         Himage.paste(self.NEW_MOOD_IMG, (17, self.epd.width-28))
         Himage.paste(self.PREV_IMG, (76, self.epd.width-28))
         Himage.paste(self.PLAY_PAUSE_IMG, (135, self.epd.width-28))
         Himage.paste(self.NEXT_IMG, (194, self.epd.width-28))
-        Himage.paste(self.ADD_SONG_IMG, (253, self.epd.width-28))
+        Himage.paste(self.INFO_IMG, (253, self.epd.width-28))
 
     def load_installed_mood_images(self):
         mood_images = []
@@ -138,6 +171,9 @@ class EPaperDisplay:
     def init_and_refresh(self):
         self.epd.init()
         self.epd.Clear(0xFF)
+
+    def toggle_info_screen(self):
+        self.is_info_screen = not self.is_info_screen
 
 # run this directly to test display
 if __name__ =="__main__":

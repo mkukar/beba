@@ -125,6 +125,7 @@ class Controller:
         if self.mood is not None and self.music is not None:
             print("Mood Reasoning: {0}".format(self.mood.current_mood_reason))
             print("Playlist Reasoning: {0}".format(self.music.search_query_reason))
+            self.toggle_info_display()
 
     def next_track(self):
         self.music.next_track()
@@ -141,7 +142,16 @@ class Controller:
             logger.debug("Aquiring display lock...")
             with self.display_lock:
                 logger.debug("Display lock aquired.")
-                self.screen.render_main(self.mood.current_mood, self.music.playlist['name'] if self.music.playlist is not None else "N/A", self.music.get_track_name(), self.music.get_artist())
+                self.screen.render(self.mood.current_mood, self.music.playlist['name'] if self.music.playlist is not None else "N/A", self.music.get_track_name(), self.music.get_artist(), self.mood.current_mood_reason, self.music.search_query_reason)
+            logger.debug("Releasing display lock.")
+
+    def toggle_info_display(self):
+        if self.screen_enabled and self.screen is not None and self.mood is not None and self.music is not None:
+            logger.debug("Aquiring display lock...")
+            with self.display_lock:
+                logger.debug("Display lock aquired.")
+                self.screen.toggle_info_screen()
+                self.screen.render(self.mood.current_mood, self.music.playlist['name'] if self.music.playlist is not None else "N/A", self.music.get_track_name(), self.music.get_artist(), self.mood.current_mood_reason, self.music.search_query_reason)
             logger.debug("Releasing display lock.")
 
     def display_refresh_timer(self):
