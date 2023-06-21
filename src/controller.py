@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 import logging
 import os
 from langchain.llms import OpenAI
-from pynput import keyboard
+from sshkeyboard import listen_keyboard, stop_listening
 from threading import Thread, Timer, Lock
 
 from mood import Mood
@@ -48,7 +48,7 @@ class Controller:
         self.music = Music(self.llm)
         self.startup_message()
         if os.getenv('RASPBERRY_PI_SCREEN') is not None and os.getenv('RASPBERRY_PI_SCREEN').lower() == "true":
-            self.screen = EPaperDisplay()
+            self.screen = EPaperDisplay(self.llm)
             self.screen_enabled = True
         logger.info("Running...")
 
@@ -61,10 +61,11 @@ class Controller:
         self.INFO_KEY = os.getenv('INFO_KEY').strip() if os.getenv('INFO_KEY') is not None else self.INFO_KEY
 
     def start(self):
-        keyboardListener = keyboard.Listener(on_press=self.on_keypress)
-        keyboardListener.start()
+        keyboard_listener = Thread(target=listen_keyboard, args=(self.on_keypress,))
+        keyboard_listener.start()
         self.start_mood_timer()
-        keyboardListener.join()
+        self.display_refresh_timer()
+        keyboard_listener.join()
 
     def setup_logger(self):
         logger.setLevel(logging.DEBUG)
@@ -86,14 +87,10 @@ class Controller:
         print("\t{0} - quit".format(self.QUIT_KEY))
 
     def on_keypress(self, key):
-        try:
-            key = key.char
-        except:
-            key = key.name
         logger.debug("Pressed key {0}".format(key))
         if key == self.QUIT_KEY:
             logger.info("Exiting...")
-            return False
+            stop_listening()
         elif key == self.CHANGE_MOOD_KEY:
             logger.info("Determining new mood...")
             Thread(target=self.determine_mood_and_play, args=(), name='determine_mood_and_play').start()
@@ -107,11 +104,11 @@ class Controller:
         elif key == self.NEXT_KEY:
             logger.info("Next track...")
             if self.music is not None:
-                Thread(target=self.music.next_track, args=(), name='next_track').start()
+                Thread(target=self.next_track, args=(), name='next_track').start()
         elif key == self.PREV_KEY:
             logger.info("Previous track...")
             if self.music is not None:
-                Thread(target=self.music.previous_track, args=(), name='next_track').start()
+                Thread(target=self.prev_track, args=(), name='prev_track').start()
 
     def determine_mood_and_play(self):
         logger.debug("Aquiring mood lock...")
@@ -128,15 +125,31 @@ class Controller:
         if self.mood is not None and self.music is not None:
             print("Mood Reasoning: {0}".format(self.mood.current_mood_reason))
             print("Playlist Reasoning: {0}".format(self.music.search_query_reason))
-    
+
+    def next_track(self):
+        self.music.next_track()
+        if self.screen_enabled:
+            self.refresh_rpi_display()
+
+    def prev_track(self):
+        self.music.previous_track()
+        if self.screen_enabled:
+            self.refresh_rpi_display()
+
     def refresh_rpi_display(self):
         if self.screen_enabled and self.screen is not None and self.mood is not None and self.music is not None:
             logger.debug("Aquiring display lock...")
             with self.display_lock:
                 logger.debug("Display lock aquired.")
-                self.screen.render_main(self.mood.current_mood, self.music.playlist['name'] if self.music.playlist is not None else "N/A")
+                self.screen.render_main(self.mood.current_mood, self.music.playlist['name'] if self.music.playlist is not None else "N/A", self.music.get_track_name(), self.music.get_artist())
             logger.debug("Releasing display lock.")
 
+    def display_refresh_timer(self):
+        # refreshes the display periodically
+        disp_refresh_daemon = Timer(30.0, self.display_refresh_timer)
+        disp_refresh_daemon.daemon = True
+        disp_refresh_daemon.start()
+        self.refresh_rpi_display()
 
     def start_mood_timer(self):
         # default to every hour if environment not set

@@ -80,7 +80,7 @@ class Music:
     def play_pause(self):
         logger.debug(self.spotify.currently_playing())
         if self.device is not None:
-            if self.spotify.currently_playing() is not None:
+            if self.spotify.currently_playing() is not None and self.spotify.currently_playing()['is_playing']:
                 logger.info("Pausing playback...")
                 self.spotify.pause_playback(device_id=self.device['id'])
             else:
@@ -98,3 +98,15 @@ class Music:
             if self.spotify.currently_playing() is not None:
                 logger.info("Skipping to previous track...")
                 self.spotify.previous_track()
+
+    def get_artist(self):
+        if self.device is not None and self.spotify.currently_playing() is not None:
+            return self.spotify.currently_playing()['item']['artists'][0]['name']
+        else:
+            return ""
+
+    def get_track_name(self):
+        if self.device is not None and self.spotify.currently_playing() is not None:
+            return self.spotify.currently_playing()['item']['name']
+        else:
+            return ""
