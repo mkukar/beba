@@ -6,6 +6,7 @@ import os
 from langchain.llms import OpenAI
 from sshkeyboard import listen_keyboard, stop_listening
 from threading import Thread, Timer, Lock
+from datetime import datetime
 
 from mood import Mood
 from music import Music
@@ -30,6 +31,11 @@ class Controller:
     screen_enabled = False
     screen = None
 
+    quiet_hours_enabled = False
+    is_quiet_hours = False
+    quiet_hours_start = None
+    quiet_hours_end = None
+
     mood_lock = Lock()
     display_lock = Lock()
 
@@ -51,8 +57,13 @@ class Controller:
         self.music = Music(self.llm)
         self.startup_message()
         if os.getenv('RASPBERRY_PI_SCREEN') is not None and os.getenv('RASPBERRY_PI_SCREEN').lower() == "true":
+            logger.info("Setting up screen...")
             self.screen = EPaperDisplay(self.llm, self.version_str)
             self.screen_enabled = True
+        if os.getenv('QUIET_HOURS') is not None and os.getenv('QUIET_HOURS').lower() == "true":
+            logger.info("Enabling quiet hours...")
+            self.quiet_hours_enabled = True
+            self.parse_quiet_hours()
         logger.info("Running...")
 
     def load_key_configuration(self):
@@ -124,15 +135,22 @@ class Controller:
         logger.debug("Aquiring mood lock...")
         with self.mood_lock:
             logger.debug("Mood lock aquired.")
+            self.is_quiet_hours = self.check_if_quiet_hours()
             if self.mood is not None and self.music is not None:
-                try:
-                    self.music.start_playlist_based_on_mood(self.mood.determine_mood())
-                    print("MOOD: {0} | PLAYLIST: {1}".format(self.mood.current_mood, self.music.playlist['name'] if self.music.playlist is not None else "None"))
-                    if self.screen_enabled and self.screen is not None:
-                        self.refresh_rpi_display()
-                except Exception as e:
-                    logger.error("Failed to determine new mood")
-                    logger.error(e)
+                if self.quiet_hours_enabled and self.is_quiet_hours:
+                    logger.info("Quiet hours, pausing music and sleeping...")
+                    self.music.pause()
+                    self.mood.current_mood = "SLEEPING"
+                    self.music.playlist = None
+                else: 
+                    try:
+                        self.music.start_playlist_based_on_mood(self.mood.determine_mood())
+                        print("MOOD: {0} | PLAYLIST: {1}".format(self.mood.current_mood, self.music.playlist['name'] if self.music.playlist is not None else "None"))
+                    except Exception as e:
+                        logger.error("Failed to determine new mood")
+                        logger.error(e)
+            if self.screen_enabled and self.screen is not None:
+                self.refresh_rpi_display()
             logger.debug("Releasing mood lock...")
 
     def get_reasoning_info(self):
@@ -190,3 +208,19 @@ class Controller:
         timer_daemon.daemon = True
         timer_daemon.start()
         self.determine_mood_and_play()
+
+    def check_if_quiet_hours(self):
+        time_now = datetime.now().time()
+        if self.quiet_hours_start is None or self.quiet_hours_end is None:
+            return False
+        return time_now >= self.quiet_hours_end or time_now <= self.quiet_hours_start
+    
+    def parse_quiet_hours(self):
+        try:
+            if os.getenv('QUIET_HOURS_START_HHMM') is not None and os.getenv('QUIET_HOURS_START_HHMM') is not None:
+                self.quiet_hours_start = datetime.strptime(os.getenv('QUIET_HOURS_START_HHMM'), '%H%M').time()
+                self.quiet_hours_end = datetime.strptime(os.getenv('QUIET_HOURS_END_HHMM'), '%H%M').time()
+        except Exception as e:
+            logger.error("Could not parse quiet hours, disabling...")
+            logger.error(e)
+            self.quiet_hours_enabled = False
