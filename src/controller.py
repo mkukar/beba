@@ -215,7 +215,7 @@ class Controller:
         time_now = datetime.now().time()
         if self.quiet_hours_start is None or self.quiet_hours_end is None:
             return False
-        return time_now >= self.quiet_hours_end or time_now <= self.quiet_hours_start
+        return time_now < self.quiet_hours_end or time_now > self.quiet_hours_start
     
     def parse_quiet_hours(self):
         try:
