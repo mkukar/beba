@@ -82,6 +82,8 @@ class Controller:
         keyboard_listener.join()
 
     def setup_logger(self):
+        for handler in logging.root.handlers[:]:
+            logging.root.removeHandler(handler)
         logger.setLevel(logging.DEBUG)
         fh = logging.FileHandler('beba.log')
         fh.setLevel(logging.DEBUG)
