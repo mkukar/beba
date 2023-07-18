@@ -1,6 +1,11 @@
 # beba
  Music curated by an AI through mood
 
+<img src="docs/imgs/beba.jpg" width=400>
+
+## How it Works
+BeBa takes in different "mood changers" (book reviews, weather reports, etc.) and feeds that into a prompt to openAI's LLM to determine its current mood. From there it uses that mood to determine what music it would like to listen to, and searches for a playlist matching that on spotify. It also chooses what image to use to represent its own mood.
+
 ## Requirements
 - Spotify API key
 - OpenAI API key
