@@ -1,7 +1,7 @@
 # Copyright Michael Kukar 2023
 
 import spotipy
-from spotipy.oauth2 import SpotifyOAuth
+from spotipy.oauth2 import SpotifyOAuth, CacheFileHandler
 from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 import logging, os
@@ -27,16 +27,19 @@ class Music:
     search_query_reason = ''
 
     def __init__(self, llm):
-        self.spotify = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=self.USER_SCOPE))
+        self.spotify = spotipy.Spotify(auth_manager=SpotifyOAuth(scope=self.USER_SCOPE, 
+                                                                 open_browser=False,
+                                                                 cache_handler=CacheFileHandler(
+                                                                    cache_path=os.path.join(os.path.abspath(os.path.dirname(__file__)), '../.cache'))))
         self.llm = llm
         self.search_by_mood_template = PromptTemplate(
             input_variables=self.SEARCH_BY_MOOD_VARS,
             template=self.SEARCH_BY_MOOD_PROMPT
         )
         self.search_by_mood_chain = LLMChain(llm=self.llm, prompt=self.search_by_mood_template)
-        self.setup_device_id(os.getenv('SPOTIFY_DEVICE_NAME'))
+        self.setup_device_id(os.getenv('SPOTIFY_DEVICE_NAME'), os.getenv('SPOTIFY_DEVICE_ID'))
 
-    def setup_device_id(self, device_name):
+    def setup_device_id(self, device_name, backup_device_id=None):
         devices = self.spotify.devices()
         logger.debug("Spotify devices: {0}".format(devices))
         if devices is None or len(devices) == 0:
@@ -46,7 +49,10 @@ class Music:
             if device['name'] == device_name:
                 self.device = device
         if self.device is None:
-            logger.error("Could not find a device with name {0}".format(device_name))
+            logging.error("Could not find a device with name {0}".format(device_name))
+            if backup_device_id is not None:
+                logging.warning("Will use backup device id {0} instead.".format(backup_device_id))
+                self.device = {'id' : backup_device_id, 'name': device_name}
 
     def find_playlist(self, search_query):
         results = self.spotify.search(q=search_query, type='playlist')
@@ -58,15 +64,22 @@ class Music:
             logger.error("Could not find a playlist for this search query {0}".format(search_query))
             return None
 
-    def get_search_query_from_mood(self, mood):
-        logger.debug("Getting search query based on mood {0}".format(mood))
-        llm_response = self.search_by_mood_chain.run({'mood' : mood})
-        logger.debug("LLM response: {0}".format(llm_response))
-        if len(llm_response.split(':')) > 2: # handling extra colons
-            split_response = llm_response.split(':')
-            llm_response = split_response[0] + '-'.join(split_response[1:])
-        self.search_query, self.search_query_reason = [x.strip() for x in llm_response.split(':')]
-        return self.search_query
+    def get_search_query_from_mood(self, mood, retry=True):
+        try:
+            logger.debug("Getting search query based on mood {0}".format(mood))
+            llm_response = self.search_by_mood_chain.run({'mood' : mood})
+            logger.debug("LLM response: {0}".format(llm_response))
+            if len(llm_response.split(':')) > 2: # handling extra colons
+                split_response = llm_response.split(':')
+                llm_response = split_response[0] + '-'.join(split_response[1:])
+            self.search_query, self.search_query_reason = [x.strip() for x in llm_response.split(':')]
+            return self.search_query
+        except Exception as e:
+            if retry:
+                logger.warning("Failed to get search query from mood due to {0}, retrying...".format(e))
+                return self.get_search_query_from_mood(mood, retry=False)
+            logger.error(e)
+            raise e
     
     def start_playlist_based_on_mood(self, mood):
         search_query = self.get_search_query_from_mood(mood)
@@ -86,6 +99,11 @@ class Music:
             else:
                 logger.info("Resuming playback...")
                 self.spotify.start_playback(device_id=self.device['id'])
+
+    def pause(self):
+        if self.device is not None:
+            logger.info("Pausing playback...")
+            self.spotify.pause_playback(device_id=self.device['id'])
 
     def next_track(self):
         if self.device is not None:

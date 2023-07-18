@@ -9,6 +9,7 @@ from langchain.prompts import PromptTemplate
 from langchain.chains import LLMChain
 from PIL import Image,ImageDraw,ImageFont
 import logging
+import textwrap
 from pathlib import Path
 LIB_DIR = Path(os.path.dirname(os.path.realpath(__file__))).resolve().parent / "resources"/ "lib"
 sys.path.append(str(LIB_DIR))
@@ -42,10 +43,13 @@ class EPaperDisplay:
     IMG_SIZE = 24
 
     MOOD_ICON_PROMPT = """
-    Pretend you are a human that can experience moods. You are currently experiencing the mood {mood}.
-    Given a list of possible emoji reactions to express your current mood, return the emoji reaction name 
-    that you think is most fitting for your mood, followed by a colon. 
-    After the colon give a descriptive reasoning for your choice. Your response must only include exactly one colon.
+    Pretend you are a human that can experience moods and enjoys to express them.
+    You are currently experiencing the mood {mood}.
+    Given a list of possible icons to express your current mood, return the name 
+    of the icon that you think is the most unique, creative, and accurate expression for your mood, 
+    followed by the : character. 
+    After the : character give a descriptive reasoning for your choice. 
+    Your response must only include exactly one : (colon).
 
     {mood_reaction_options}
     """
@@ -54,11 +58,20 @@ class EPaperDisplay:
     mood_images = ['happy']
     current_mood_icon = 'happy'
     current_mood_icon_reason  = 'none'
-    current_mood_text = ""
+    last_render = {
+        'mood' : '',
+        'playlist' : '',
+        'song' : '',
+        'artist' : '',
+        'mood_info' : '',
+        'playlist_info' : '',
+        'is_info_screen': False
+    }
 
     is_info_screen = False
 
-    def __init__(self, llm):
+    def __init__(self, llm, version_str):
+        self.version_str = version_str
         self.llm = llm
         self.mood_prompt_template = PromptTemplate(
             input_variables=self.MOOD_ICON_PROMPT_VARS,
@@ -84,66 +97,65 @@ class EPaperDisplay:
         new_image.paste(raw_image, (0,0), raw_image)
         new_image.convert("RGB")
         return new_image
-
-    def render(self, mood_text, playlist_text, song_name_text, artist_name_text, mood_info_text, playlist_info_text):
+    
+    def render(self, mood_text, playlist_text, song_name_text="SONG", artist_name_text="ARTIST", mood_info_text="MOOD INFO", playlist_info_text="PLAYLIST_INFO"):
+        if not self.should_refresh(mood_text, playlist_text, song_name_text, artist_name_text, mood_info_text, playlist_info_text, self.is_info_screen):
+            return
+        logger.info("State has changed, refreshing display...")
+        Himage = Image.new('1', (self.epd.width, self.epd.height), 255)
+        draw = ImageDraw.Draw(Himage)
+        draw.text((85, self.epd.height-15), 'BeBa v{0}'.format(self.version_str), font = self.FONT_10, fill = 0)
+        draw.text((35, 115), '{0}'.format(mood_text.upper()), font = self.FONT_14, fill = 0)
+        max_text_length = 12
         if not self.is_info_screen:
-            self.render_main(mood_text, playlist_text, song_name_text, artist_name_text)
+            text_lines = textwrap.fill(playlist_text, max_text_length).split('\n')
+            text_lines.extend(textwrap.fill(song_name_text, max_text_length).split('\n'))
+            text_lines.extend(textwrap.fill(artist_name_text, max_text_length).split('\n'))
         else:
-            self.render_info(mood_text, playlist_text, mood_info_text, playlist_info_text)
-
-    def render_main(self, mood_text, playlist_text, song_name_text="SONG", artist_name_text="ARTIST"):
-        Himage = Image.new('1', (self.epd.height, self.epd.width), 255)
-        draw = ImageDraw.Draw(Himage)
-        draw.text((240, 0), 'BeBa v1.0', font = self.FONT_12, fill = 0)
-        draw.text((110, 10), '{0}'.format(mood_text), font = self.FONT_18, fill = 0)
-        if len(playlist_text) > 30:
-            playlist_font = self.FONT_12
-        elif len(playlist_text) > 20:
-            playlist_font = self.FONT_14
-        else:
-            playlist_font = self.FONT_18
-        draw.text((110, 32), '{0}'.format(playlist_text), font = playlist_font, fill = 0)
-        draw.text((110, 55), '{0}'.format(song_name_text), font = self.FONT_12, fill = 0)
-        draw.text((110, 70), 'by {0}'.format(artist_name_text), font = self.FONT_12, fill = 0)
+            text_lines = textwrap.fill(mood_info_text, max_text_length).split('\n')
+            text_lines.extend(textwrap.fill(playlist_info_text, max_text_length).split('\n'))
+        self.render_text(draw, text_lines, 35, 140, 15, self.FONT_12)
         self.render_button_info(draw, Himage)
-        if self.current_mood_text != mood_text:
+        if self.last_render['mood'] != mood_text:
             self.render_mood(Himage, self.determine_mood_image(mood_text))
         else:
             self.render_mood(Himage, self.current_mood_icon.lower())
-        self.current_mood_text = mood_text
+        Himage = Himage.transpose(method=Image.ROTATE_180)
         self.epd.display(self.epd.getbuffer(Himage))
+        self.save_last_render(mood_text, playlist_text, song_name_text, artist_name_text, mood_info_text, playlist_info_text, self.is_info_screen)
 
-    def split_strings(self, string_input, max_length):
-        return [string_input[i:i+max_length] for i in range(0, len(string_input), max_length)]
+    def should_refresh(self, mood, playlist, song, artist, mood_info, playlist_info, is_info_screen):
+        return any([self.last_render['mood'] != mood, 
+                self.last_render['playlist'] != playlist, 
+                self.last_render['song'] != song,
+                self.last_render['artist'] != artist,
+                self.last_render['mood_info'] != mood_info,
+                self.last_render['playlist_info'] != playlist_info,
+                self.last_render['is_info_screen'] != is_info_screen])
 
-    def render_info(self, mood_text, playlist_text, mood_info_text, playlist_info_text):
-        Himage = Image.new('1', (self.epd.height, self.epd.width), 255)
-        draw = ImageDraw.Draw(Himage)
-        info_strings = []
-        string_size = 40
-        info_strings.extend(self.split_strings(mood_info_text, string_size))
-        info_strings.extend(self.split_strings("{0} {1}".format(playlist_text, playlist_info_text), string_size))
-        draw.text((240, 0), 'BeBa v1.0', font = self.FONT_12, fill = 0)
-        startY = 10
-        yIncrement = 10
-        for info_str in info_strings:
-            draw.text((110, startY), '{0}'.format(info_str), font = self.FONT_10, fill = 0)
-            startY += yIncrement
-        self.render_button_info(draw, Himage)
-        if self.current_mood_text != mood_text:
-            self.render_mood(Himage, self.determine_mood_image(mood_text))
-        else:
-            self.render_mood(Himage, self.current_mood_icon.lower())
-        self.current_mood_text = mood_text
-        self.epd.display(self.epd.getbuffer(Himage))
+    def save_last_render(self, mood, playlist, song, artist, mood_info, playlist_info, is_info_screen):
+        self.last_render['mood'] = mood
+        self.last_render['playlist'] = playlist
+        self.last_render['song'] = song
+        self.last_render['artist'] = artist
+        self.last_render['mood_info'] = mood_info
+        self.last_render['playlist_info'] = playlist_info
+        self.last_render['is_info_screen'] = is_info_screen
+        logger.debug(self.last_render)
+
+    def render_text(self, draw, lines, start_x, start_y, y_spacing, font_size):
+        for i, line in enumerate(lines):
+            draw.text((start_x, start_y + (i*y_spacing)), '{0}'.format(line), font = font_size, fill = 0)
 
     def render_button_info(self, draw, Himage):
-        draw.line((10, self.epd.width-35, self.epd.height-10, self.epd.width-35), fill = 0)
-        Himage.paste(self.NEW_MOOD_IMG, (17, self.epd.width-28))
-        Himage.paste(self.PREV_IMG, (76, self.epd.width-28))
-        Himage.paste(self.PLAY_PAUSE_IMG, (135, self.epd.width-28))
-        Himage.paste(self.NEXT_IMG, (194, self.epd.width-28))
-        Himage.paste(self.INFO_IMG, (253, self.epd.width-28))
+        start_x = 3
+        start_x_line = 30
+        draw.line((start_x_line, 5, start_x_line, self.epd.height-5), fill = 0)
+        Himage.paste(self.NEW_MOOD_IMG, (start_x, 17))
+        Himage.paste(self.PREV_IMG, (start_x, 76))
+        Himage.paste(self.PLAY_PAUSE_IMG, (start_x, 135))
+        Himage.paste(self.NEXT_IMG, (start_x, 194))
+        Himage.paste(self.INFO_IMG, (start_x, 253))
 
     def load_installed_mood_images(self):
         mood_images = []
@@ -153,20 +165,26 @@ class EPaperDisplay:
         self.mood_images = mood_images
 
     # uses mood text to determine what mood image to use
-    def determine_mood_image(self, mood_text):
-        logger.debug(', '.join(self.mood_images))
-        mood_icon_response = self.mood_chain.run({'mood' : mood_text, 'mood_reaction_options' : ', '.join(self.mood_images)})
-        logger.debug("LLM response: {0}".format(mood_icon_response))
-        if len(mood_icon_response.split(':')) > 2: # handling extra colons
-            split_response = mood_icon_response.split(':')
-            mood_icon_response = split_response[0] + '-'.join(split_response[1:])
-        self.current_mood_icon, self.current_mood_icon_reason = [x.lower().strip() for x in mood_icon_response.split(':')]
+    def determine_mood_image(self, mood_text, retry=True):
+        try:
+            logger.debug(', '.join(self.mood_images))
+            mood_icon_response = self.mood_chain.run({'mood' : mood_text, 'mood_reaction_options' : ', '.join(self.mood_images)})
+            logger.debug("LLM response: {0}".format(mood_icon_response))
+            if len(mood_icon_response.split(':')) > 2: # handling extra colons
+                split_response = mood_icon_response.split(':')
+                mood_icon_response = split_response[0] + '-'.join(split_response[1:])
+            self.current_mood_icon, self.current_mood_icon_reason = [x.lower().strip() for x in mood_icon_response.split(':')]
+        except Exception as e:
+            if retry:
+                return self.determine_mood_image(mood_text, retry=False)
+            else:
+                raise e
         return self.current_mood_icon.lower()
 
     def render_mood(self, Himage, mood):
         self.MOOD_IMG_PATH = self.MOOD_IMG_DIR / "{0}.png".format(mood)
         self.MOOD_IMG = self.load_image(str(self.MOOD_IMG_PATH))
-        Himage.paste(self.MOOD_IMG, (10, 0))
+        Himage.paste(self.MOOD_IMG, (35, 20))
 
     def init_and_refresh(self):
         self.epd.init()
@@ -184,5 +202,7 @@ if __name__ =="__main__":
         max_tokens=2000,
         openai_api_key=os.getenv('OPENAI_API_KEY')
     )
-    display = EPaperDisplay(llm)
-    display.render_main("Unsure", "TEST PLAYLIST")
+    display = EPaperDisplay(llm, "1.0")
+    display.render("Batty", "Test Playlist Name", "Songname", "An Artist")
+    print(display.current_mood_icon)
+    print(display.current_mood_icon_reason)

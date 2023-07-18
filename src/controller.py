@@ -33,8 +33,11 @@ class Controller:
     mood_lock = Lock()
     display_lock = Lock()
 
+    def __init__(self, version):
+        self.version_str = version
+
     def setup(self):
-        load_dotenv()
+        load_dotenv(os.path.join(os.path.abspath(os.path.dirname(__file__)), '../.env'))
         self.setup_logger()
         self.load_key_configuration()
         logger.info("Setting up...")
@@ -48,7 +51,7 @@ class Controller:
         self.music = Music(self.llm)
         self.startup_message()
         if os.getenv('RASPBERRY_PI_SCREEN') is not None and os.getenv('RASPBERRY_PI_SCREEN').lower() == "true":
-            self.screen = EPaperDisplay(self.llm)
+            self.screen = EPaperDisplay(self.llm, self.version_str)
             self.screen_enabled = True
         logger.info("Running...")
 
@@ -76,7 +79,7 @@ class Controller:
         logger.addHandler(fh)
 
     def startup_message(self):
-        print("BeBa")
+        print("BeBa v{0}".format(self.version_str))
         print("Created by Michael Kukar in 2023")
         print("Controls:")
         print("\t{0} - determine new mood and start relevant playlist".format(self.CHANGE_MOOD_KEY))
@@ -86,11 +89,18 @@ class Controller:
         print("\t{0} - prev".format(self.PREV_KEY))
         print("\t{0} - quit".format(self.QUIT_KEY))
 
+    def cleanup_and_exit(self):
+        if self.music is not None:
+            self.music.pause()
+        if self.screen_enabled and self.screen is not None:
+            self.screen.init_and_refresh()
+        stop_listening()
+
     def on_keypress(self, key):
         logger.debug("Pressed key {0}".format(key))
         if key == self.QUIT_KEY:
             logger.info("Exiting...")
-            stop_listening()
+            self.cleanup_and_exit()
         elif key == self.CHANGE_MOOD_KEY:
             logger.info("Determining new mood...")
             Thread(target=self.determine_mood_and_play, args=(), name='determine_mood_and_play').start()
@@ -115,10 +125,14 @@ class Controller:
         with self.mood_lock:
             logger.debug("Mood lock aquired.")
             if self.mood is not None and self.music is not None:
-                self.music.start_playlist_based_on_mood(self.mood.determine_mood())
-                print("MOOD: {0} | PLAYLIST: {1}".format(self.mood.current_mood, self.music.playlist['name'] if self.music.playlist is not None else "None"))
-                if self.screen_enabled and self.screen is not None:
-                    self.refresh_rpi_display()
+                try:
+                    self.music.start_playlist_based_on_mood(self.mood.determine_mood())
+                    print("MOOD: {0} | PLAYLIST: {1}".format(self.mood.current_mood, self.music.playlist['name'] if self.music.playlist is not None else "None"))
+                    if self.screen_enabled and self.screen is not None:
+                        self.refresh_rpi_display()
+                except Exception as e:
+                    logger.error("Failed to determine new mood")
+                    logger.error(e)
             logger.debug("Releasing mood lock...")
 
     def get_reasoning_info(self):
@@ -142,7 +156,11 @@ class Controller:
             logger.debug("Aquiring display lock...")
             with self.display_lock:
                 logger.debug("Display lock aquired.")
-                self.screen.render(self.mood.current_mood, self.music.playlist['name'] if self.music.playlist is not None else "N/A", self.music.get_track_name(), self.music.get_artist(), self.mood.current_mood_reason, self.music.search_query_reason)
+                try:
+                    self.screen.render(self.mood.current_mood, self.music.playlist['name'] if self.music.playlist is not None else "N/A", self.music.get_track_name(), self.music.get_artist(), self.mood.current_mood_reason, self.music.search_query_reason)
+                except Exception as e:
+                    logger.error("Failed to render screen")
+                    logger.error(e)
             logger.debug("Releasing display lock.")
 
     def toggle_info_display(self):
@@ -150,13 +168,16 @@ class Controller:
             logger.debug("Aquiring display lock...")
             with self.display_lock:
                 logger.debug("Display lock aquired.")
-                self.screen.toggle_info_screen()
-                self.screen.render(self.mood.current_mood, self.music.playlist['name'] if self.music.playlist is not None else "N/A", self.music.get_track_name(), self.music.get_artist(), self.mood.current_mood_reason, self.music.search_query_reason)
+                try:
+                    self.screen.toggle_info_screen()
+                except Exception as e:
+                    logger.error("Failed to toggle info screen")
+                    logger.error(e)
             logger.debug("Releasing display lock.")
 
     def display_refresh_timer(self):
-        # refreshes the display periodically
-        disp_refresh_daemon = Timer(30.0, self.display_refresh_timer)
+        # checks if need to refresh the display periodically
+        disp_refresh_daemon = Timer(5.0, self.display_refresh_timer)
         disp_refresh_daemon.daemon = True
         disp_refresh_daemon.start()
         self.refresh_rpi_display()

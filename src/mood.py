@@ -14,8 +14,10 @@ logger = logging.getLogger('beba')
 class Mood:
 
     MOOD_PROMPT = """
-    Pretend you are a human that can experience moods. Given the following information, return a unique and specific mood
-    that is less than three words followed by a colon. After the colon give a descriptive reasoning for the mood you are now in.
+    Pretend you are a human that can experience moods and enjoys to express them. 
+    Given the following information, return a unique, creative, and specific mood 
+    that is less than three words followed by a colon. 
+    After the colon give a descriptive reasoning for the mood you are now in.
     Your response must only include exactly one colon.
     {mood_changer_text}
     """
@@ -60,16 +62,24 @@ class Mood:
             mood_changer_text += "{0}\n".format(summary)
         return mood_changer_text
 
-    def determine_mood(self):
-        mood_changers = self.get_mood_changers()
-        logger.debug("Mood changers: {0}".format(str(mood_changers)))
-        mood_changer_text = self.format_mood_changers_into_text(mood_changers)
-        logger.debug("Mood changer text: {0}".format(mood_changer_text))
-        mood_response = self.mood_chain.run({'mood_changer_text' : mood_changer_text})
-        logger.debug("LLM response: {0}".format(mood_response))
-        if len(mood_response.split(':')) > 2: # handling extra colons
-            split_response = mood_response.split(':')
-            mood_response = split_response[0] + '-'.join(split_response[1:])
-        self.current_mood, self.current_mood_reason = [x.strip() for x in mood_response.split(self.MOOD_SPLIT_CHARACTER)]
-        logger.info("New mood: {0}".format(self.current_mood))
+    def determine_mood(self, retry=True):
+        try:
+            mood_changers = self.get_mood_changers()
+            logger.debug("Mood changers: {0}".format(str(mood_changers)))
+            mood_changer_text = self.format_mood_changers_into_text(mood_changers)
+            logger.debug("Mood changer text: {0}".format(mood_changer_text))
+            mood_response = self.mood_chain.run({'mood_changer_text' : mood_changer_text})
+            logger.debug("LLM response: {0}".format(mood_response))
+            if len(mood_response.split(':')) > 2: # handling extra colons
+                split_response = mood_response.split(':')
+                mood_response = split_response[0] + '-'.join(split_response[1:])
+            self.current_mood, self.current_mood_reason = [x.strip() for x in mood_response.split(self.MOOD_SPLIT_CHARACTER)]
+            logger.info("New mood: {0}".format(self.current_mood))
+        except Exception as e:
+            if retry:
+                logger.warning("WARNING: Determining mood failed due to {0}, retrying...".format(e))
+                return self.determine_mood(retry=False)
+            else:
+                logger.error(e)
+                raise e
         return self.current_mood

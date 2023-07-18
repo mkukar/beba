@@ -6,9 +6,10 @@ import logging
 
 logger = logging.getLogger('beba')
 
+VERSION = "1.0"
 
 if __name__ == "__main__":
-    controller = Controller()
+    controller = Controller(VERSION)
     controller.setup()
     controller.start()
 
