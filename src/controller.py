@@ -204,7 +204,10 @@ class Controller:
 
     def start_mood_timer(self):
         # default to every hour if environment not set
+        # during quiet hours, want to check every minute, not the default
         durationMinutes = int(os.getenv('NEW_MOOD_TIMER_MINUTES')) if os.getenv('NEW_MOOD_TIMER_MINUTES') is not None else 60.0
+        if self.check_if_quiet_hours():
+            durationMinutes = 1.0
         logger.info("Starting a new mood timer for {0} minutes from now...".format(durationMinutes))
         timer_daemon = Timer(60.0 * (float(durationMinutes)), self.start_mood_timer)
         timer_daemon.daemon = True
