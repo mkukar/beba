@@ -87,6 +87,7 @@ class BooksMoodChanger(MoodChanger):
         return 'You have recently read {0} by {1} with the description {2}'.format(self.current_book['title'], self.current_book['author'], self.current_book['description']).replace(':', '-')
 
 
+# NOTE - DEPRECATED BY THE NYTIMES API
 class MoviesMoodChanger(MoodChanger):
 
     BASE_ENDPOINT = "https://api.nytimes.com/"
@@ -106,6 +107,7 @@ class MoviesMoodChanger(MoodChanger):
 
 
     def get_mood_changer_topic(self) -> str:
+        logger.warning("MOVIES MOOD CHANGER DEPRECATED!")
         return self.TOPIC
     
     def get_mood_changer_summary(self) -> str:
