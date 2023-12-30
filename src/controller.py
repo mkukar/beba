@@ -24,6 +24,8 @@ class Controller:
     PREV_KEY = 'p'
     INFO_KEY = 'i'
 
+    MODEL="gpt-3.5-turbo-instruct"
+
     llm = None
     mood = None
     music = None
@@ -48,7 +50,7 @@ class Controller:
         self.load_key_configuration()
         logger.info("Setting up...")
         self.llm = OpenAI(
-            model="text-davinci-003",
+            model=self.MODEL,
             temperature=0.9,
             max_tokens=2000,
             openai_api_key=os.getenv('OPENAI_API_KEY')
