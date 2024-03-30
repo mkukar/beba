@@ -2,7 +2,7 @@
 # based on Waveshare ePaper 2.9in v2 display
 # https://github.com/waveshare/e-Paper/blob/master/RaspberryPi_JetsonNano/python/examples/epd_2in9_V2_test.py
 
-from langchain.llms import OpenAI
+from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 import sys, os
 from langchain.prompts import PromptTemplate
@@ -35,6 +35,7 @@ class EPaperDisplay:
     NEW_MOOD_IMG_PATH = IMG_DIR / "icons8-reload-turn-arrow-function-to-spin-and-restart-24.png"
     INFO_IMG_PATH = IMG_DIR / "icons8-info-24.png"
 
+    FONT_8 = ImageFont.truetype(str(FONT_PATH), 8)
     FONT_10 = ImageFont.truetype(str(FONT_PATH), 10)
     FONT_12 = ImageFont.truetype(str(FONT_PATH), 12)
     FONT_18 = ImageFont.truetype(str(FONT_PATH), 18)
@@ -106,15 +107,22 @@ class EPaperDisplay:
         draw = ImageDraw.Draw(Himage)
         draw.text((85, self.epd.height-15), 'BeBa v{0}'.format(self.version_str), font = self.FONT_10, fill = 0)
         draw.text((35, 115), '{0}'.format(mood_text.upper()), font = self.FONT_14, fill = 0)
-        max_text_length = 12
         if not self.is_info_screen:
+            max_text_length = 12
+            text_font = self.FONT_12
+            spacing = 15
             text_lines = textwrap.fill(playlist_text, max_text_length).split('\n')
+            text_lines.extend('\n')
             text_lines.extend(textwrap.fill(song_name_text, max_text_length).split('\n'))
             text_lines.extend(textwrap.fill(artist_name_text, max_text_length).split('\n'))
         else:
+            max_text_length = 24
+            text_font = self.FONT_8
+            spacing = 10
             text_lines = textwrap.fill(mood_info_text, max_text_length).split('\n')
-            text_lines.extend(textwrap.fill(playlist_info_text, max_text_length).split('\n'))
-        self.render_text(draw, text_lines, 35, 140, 15, self.FONT_12)
+            #text_lines.extend(textwrap.fill(playlist_info_text, max_text_length).split('\n'))
+            
+        self.render_text(draw, text_lines, 35, 140, spacing, text_font)
         self.render_button_info(draw, Himage)
         if self.last_render['mood'] != mood_text:
             self.render_mood(Himage, self.determine_mood_image(mood_text))
@@ -168,12 +176,12 @@ class EPaperDisplay:
     def determine_mood_image(self, mood_text, retry=True):
         try:
             logger.debug(', '.join(self.mood_images))
-            mood_icon_response = self.mood_chain.run({'mood' : mood_text, 'mood_reaction_options' : ', '.join(self.mood_images)})
+            mood_icon_response = self.mood_chain.invoke({'mood' : mood_text, 'mood_reaction_options' : ', '.join(self.mood_images)})
             logger.debug("LLM response: {0}".format(mood_icon_response))
-            if len(mood_icon_response.split(':')) > 2: # handling extra colons
-                split_response = mood_icon_response.split(':')
-                mood_icon_response = split_response[0] + '-'.join(split_response[1:])
-            self.current_mood_icon, self.current_mood_icon_reason = [x.lower().strip() for x in mood_icon_response.split(':')]
+            if len(mood_icon_response['text'].split(':')) > 2: # handling extra colons
+                split_response = mood_icon_response['text'].split(':')
+                mood_icon_response['text'] = split_response[0] + '-'.join(split_response[1:])
+            self.current_mood_icon, self.current_mood_icon_reason = [x.lower().strip() for x in mood_icon_response['text'].split(':')]
         except Exception as e:
             if retry:
                 return self.determine_mood_image(mood_text, retry=False)
@@ -196,8 +204,8 @@ class EPaperDisplay:
 # run this directly to test display
 if __name__ =="__main__":
     load_dotenv()
-    llm = OpenAI(
-        model="text-davinci-003",
+    llm = ChatOpenAI(
+        model="gpt-4",
         temperature=0.9,
         max_tokens=2000,
         openai_api_key=os.getenv('OPENAI_API_KEY')

@@ -2,8 +2,9 @@
 
 from dotenv import load_dotenv
 import logging
+from logging.handlers import RotatingFileHandler
 import os
-from langchain.llms import OpenAI
+from langchain_openai import ChatOpenAI
 from sshkeyboard import listen_keyboard, stop_listening
 from threading import Thread, Timer, Lock
 from datetime import datetime
@@ -24,7 +25,7 @@ class Controller:
     PREV_KEY = 'p'
     INFO_KEY = 'i'
 
-    MODEL="gpt-3.5-turbo-instruct"
+    MODEL="gpt-4"
 
     llm = None
     mood = None
@@ -35,6 +36,7 @@ class Controller:
 
     quiet_hours_enabled = False
     is_quiet_hours = False
+    quiet_hours_handled = False
     quiet_hours_start = None
     quiet_hours_end = None
 
@@ -49,7 +51,7 @@ class Controller:
         self.setup_logger()
         self.load_key_configuration()
         logger.info("Setting up...")
-        self.llm = OpenAI(
+        self.llm = ChatOpenAI(
             model=self.MODEL,
             temperature=0.9,
             max_tokens=2000,
@@ -87,7 +89,8 @@ class Controller:
         for handler in logging.root.handlers[:]:
             logging.root.removeHandler(handler)
         logger.setLevel(logging.DEBUG)
-        fh = logging.FileHandler('beba.log')
+        fh = RotatingFileHandler('beba.log', mode='a', maxBytes=5*1024*1024, 
+                                 backupCount=2, encoding=None, delay=False)
         fh.setLevel(logging.DEBUG)
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         fh.setFormatter(formatter)
@@ -142,11 +145,14 @@ class Controller:
             self.is_quiet_hours = self.check_if_quiet_hours()
             if self.mood is not None and self.music is not None:
                 if self.quiet_hours_enabled and self.is_quiet_hours:
-                    logger.info("Quiet hours, pausing music and sleeping...")
-                    self.music.pause()
-                    self.mood.current_mood = "SLEEPING"
-                    self.music.playlist = None
-                else: 
+                    if not self.quiet_hours_enabled:
+                        logger.info("Quiet hours, pausing music and sleeping...")
+                        self.music.pause()
+                        self.mood.current_mood = "SLEEPING"
+                        self.music.playlist = None
+                        self.quiet_hours_handled = True
+                else:
+                    self.quiet_hours_handled = False
                     try:
                         self.music.start_playlist_based_on_mood(self.mood.determine_mood())
                         print("MOOD: {0} | PLAYLIST: {1}".format(self.mood.current_mood, self.music.playlist['name'] if self.music.playlist is not None else "None"))

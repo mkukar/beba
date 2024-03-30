@@ -67,12 +67,12 @@ class Music:
     def get_search_query_from_mood(self, mood, retry=True):
         try:
             logger.debug("Getting search query based on mood {0}".format(mood))
-            llm_response = self.search_by_mood_chain.run({'mood' : mood})
+            llm_response = self.search_by_mood_chain.invoke({'mood' : mood})
             logger.debug("LLM response: {0}".format(llm_response))
-            if len(llm_response.split(':')) > 2: # handling extra colons
-                split_response = llm_response.split(':')
-                llm_response = split_response[0] + '-'.join(split_response[1:])
-            self.search_query, self.search_query_reason = [x.strip() for x in llm_response.split(':')]
+            if len(llm_response['text'].split(':')) > 2: # handling extra colons
+                split_response = llm_response['text'].split(':')
+                llm_response['text'] = split_response[0] + '-'.join(split_response[1:])
+            self.search_query, self.search_query_reason = [x.strip() for x in llm_response['text'].split(':')]
             return self.search_query
         except Exception as e:
             if retry:
