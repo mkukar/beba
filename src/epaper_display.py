@@ -3,6 +3,7 @@
 # https://github.com/waveshare/e-Paper/blob/master/RaspberryPi_JetsonNano/python/examples/epd_2in9_V2_test.py
 
 from langchain_openai import ChatOpenAI
+from langchain_community.utilities.dalle_image_generator import DallEAPIWrapper
 from dotenv import load_dotenv
 import sys, os
 from langchain.prompts import PromptTemplate
@@ -10,6 +11,7 @@ from langchain.chains import LLMChain
 from PIL import Image,ImageDraw,ImageFont
 import logging
 import textwrap
+import urllib.request
 from pathlib import Path
 LIB_DIR = Path(os.path.dirname(os.path.realpath(__file__))).resolve().parent / "resources"/ "lib"
 sys.path.append(str(LIB_DIR))
@@ -43,18 +45,13 @@ class EPaperDisplay:
 
     IMG_SIZE = 24
 
-    MOOD_ICON_PROMPT = """
-    Pretend you are a human that can experience moods and enjoys to express them.
-    You are currently experiencing the mood {mood}.
-    Given a list of possible icons to express your current mood, return the name 
-    of the icon that you think is the most unique, creative, and accurate expression for your mood, 
-    followed by the : character. 
-    After the : character give a descriptive reasoning for your choice. 
-    Your response must only include exactly one : (colon).
+    MOOD_ICON_DISPLAY_SIZE_PX = 90
+    MOOD_ICON_SIZE_PX = 256 # LLM can only generate to so small a size
 
-    {mood_reaction_options}
+    MOOD_ICON_PROMPT = """
+    Generate a prompt of less than 20 words to create a monochrome image based on the following mood {mood}.
     """
-    MOOD_ICON_PROMPT_VARS = ['mood', 'mood_reaction_options']
+    MOOD_ICON_PROMPT_VARS = ['mood']
 
     mood_images = ['happy']
     current_mood_icon = 'happy'
@@ -79,13 +76,17 @@ class EPaperDisplay:
             template=self.MOOD_ICON_PROMPT
         )
         self.mood_chain = LLMChain(llm=self.llm, prompt=self.mood_prompt_template)
-        logger.info("Loading icons and mood images...")
+        logger.info("Setting up llm for image generation...")
+        self.image_llm = DallEAPIWrapper(
+            model="dall-e-2", # dall-e-3 only supports image size 1024x1024
+            size='{0}x{0}'.format(self.MOOD_ICON_SIZE_PX)
+        )
+        logger.info("Loading icons...")
         self.PREV_IMG = self.load_image(str(self.PREV_IMG_PATH))
         self.NEXT_IMG = self.load_image(str(self.NEXT_IMG_PATH))
         self.PLAY_PAUSE_IMG = self.load_image(str(self.PLAY_PAUSE_IMG_PATH))
         self.NEW_MOOD_IMG = self.load_image(str(self.NEW_MOOD_IMG_PATH))
         self.INFO_IMG = self.load_image(str(self.INFO_IMG_PATH))
-        self.load_installed_mood_images()
         logger.info("Setting up display...")
         self.epd = epd2in9_V2.EPD()
         self.init_and_refresh()
@@ -93,12 +94,18 @@ class EPaperDisplay:
 
     # ensures image works on epaper (converts transparent -> white)
     def load_image(self, image_path):
-        raw_image = Image.open(image_path)
+        raw_image = Image.open(image_path).convert("RGBA")
         new_image = Image.new("RGBA", raw_image.size, "WHITE")
         new_image.paste(raw_image, (0,0), raw_image)
         new_image.convert("RGB")
         return new_image
     
+    def resize_image(self, raw_image, ideal_size_xy_px: int):
+        logger.debug("Resizing image to {0}x{0}".format(ideal_size_xy_px))
+        wpercent = (ideal_size_xy_px / float(raw_image.size[0]))
+        hsize = int((float(raw_image.size[1]) * float(wpercent)))
+        return raw_image.resize((ideal_size_xy_px, hsize), Image.LANCZOS)
+
     def render(self, mood_text, playlist_text, song_name_text="SONG", artist_name_text="ARTIST", mood_info_text="MOOD INFO", playlist_info_text="PLAYLIST_INFO"):
         if not self.should_refresh(mood_text, playlist_text, song_name_text, artist_name_text, mood_info_text, playlist_info_text, self.is_info_screen):
             return
@@ -165,23 +172,19 @@ class EPaperDisplay:
         Himage.paste(self.NEXT_IMG, (start_x, 194))
         Himage.paste(self.INFO_IMG, (start_x, 253))
 
-    def load_installed_mood_images(self):
-        mood_images = []
-        for mood_file in self.MOOD_IMG_DIR.iterdir():
-            if mood_file.is_file():
-                mood_images.append(mood_file.stem)
-        self.mood_images = mood_images
-
-    # uses mood text to determine what mood image to use
+    # generates mood image using DALL-E
     def determine_mood_image(self, mood_text, retry=True):
         try:
-            logger.debug(', '.join(self.mood_images))
-            mood_icon_response = self.mood_chain.invoke({'mood' : mood_text, 'mood_reaction_options' : ', '.join(self.mood_images)})
+            image_name = mood_text.replace(' ', '').lower()
+            mood_icon_response = self.mood_chain.invoke({'mood' : mood_text})
             logger.debug("LLM response: {0}".format(mood_icon_response))
-            if len(mood_icon_response['text'].split(':')) > 2: # handling extra colons
-                split_response = mood_icon_response['text'].split(':')
-                mood_icon_response['text'] = split_response[0] + '-'.join(split_response[1:])
-            self.current_mood_icon, self.current_mood_icon_reason = [x.lower().strip() for x in mood_icon_response['text'].split(':')]
+            image_url = self.image_llm.run(mood_icon_response['text'])
+            logger.debug("Image URL {0}".format(image_url))
+            # Note - this overwrites existing images of same mood, long term maybe we do something else (save all images?)
+            urllib.request.urlretrieve(image_url, self.MOOD_IMG_DIR / "{0}.png".format(image_name))
+
+            self.current_mood_icon = image_name
+            self.current_mood_icon_reason = mood_icon_response
         except Exception as e:
             if retry:
                 return self.determine_mood_image(mood_text, retry=False)
@@ -192,6 +195,7 @@ class EPaperDisplay:
     def render_mood(self, Himage, mood):
         self.MOOD_IMG_PATH = self.MOOD_IMG_DIR / "{0}.png".format(mood)
         self.MOOD_IMG = self.load_image(str(self.MOOD_IMG_PATH))
+        self.MOOD_IMG = self.resize_image(self.MOOD_IMG, self.MOOD_ICON_DISPLAY_SIZE_PX)
         Himage.paste(self.MOOD_IMG, (35, 20))
 
     def init_and_refresh(self):
@@ -210,7 +214,15 @@ if __name__ =="__main__":
         max_tokens=2000,
         openai_api_key=os.getenv('OPENAI_API_KEY')
     )
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    fh = logging.StreamHandler()
+    fh.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
     display = EPaperDisplay(llm, "1.0")
-    display.render("Batty", "Test Playlist Name", "Songname", "An Artist")
+    display.render("Introspective", "Test Playlist Name", "Songname", "An Artist")
     print(display.current_mood_icon)
     print(display.current_mood_icon_reason)
