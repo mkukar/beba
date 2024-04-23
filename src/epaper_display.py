@@ -49,7 +49,7 @@ class EPaperDisplay:
     MOOD_ICON_SIZE_PX = 256 # LLM can only generate to so small a size
 
     MOOD_ICON_PROMPT = """
-    Generate a prompt of less than 20 words to create a monochrome image based on the following mood {mood}.
+    Generate a prompt of less than 20 words to create an image based on the following mood {mood}.
     """
     MOOD_ICON_PROMPT_VARS = ['mood']
 

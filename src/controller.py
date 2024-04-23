@@ -145,7 +145,7 @@ class Controller:
             self.is_quiet_hours = self.check_if_quiet_hours()
             if self.mood is not None and self.music is not None:
                 if self.quiet_hours_enabled and self.is_quiet_hours:
-                    if not self.quiet_hours_enabled:
+                    if not self.quiet_hours_handled:
                         logger.info("Quiet hours, pausing music and sleeping...")
                         self.music.pause()
                         self.mood.current_mood = "SLEEPING"

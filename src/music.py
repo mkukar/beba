@@ -87,6 +87,7 @@ class Music:
         if self.playlist is not None and self.device is not None:
             logger.info("Starting playback of playlist {0}...".format(self.playlist))
             self.spotify.start_playback(context_uri=self.playlist['uri'], device_id=self.device['id'])
+            self.play()
         else:
             logger.error("Could not start playback as playlist or device is not present.")
     
@@ -99,6 +100,11 @@ class Music:
             else:
                 logger.info("Resuming playback...")
                 self.spotify.start_playback(device_id=self.device['id'])
+
+    def play(self):
+        if self.device is not None:
+            logger.info("Resuming playback...")
+            self.spotify.start_playback(device_id=self.device['id'])
 
     def pause(self):
         if self.device is not None:

@@ -14,9 +14,11 @@ logger = logging.getLogger('beba')
 class Mood:
 
     MOOD_PROMPT = """
-    Pretend you are a human that can experience moods and enjoys expressing them. 
-    Given the following information, return a unique, creative, and specific mood 
-    that is a single word followed by a colon. 
+    Pretend you are a human that can experience moods and feelings and enjoys expressing them. 
+    Given the following information, return a unique, creative, and specific mood or feeling
+    that is a single word followed by a colon. Your mood should be intuitive and simple.
+    Your mood should not be reflective, introspective, intrigued, stimulated, enlighted, inspired 
+    or a similar type of mood that is vague or uninteresting.
     After the colon give a descriptive reasoning for the mood you are now in.
     Your response must only include exactly one colon.
     {mood_changer_text}
